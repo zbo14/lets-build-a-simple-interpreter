@@ -1,0 +1,126 @@
+0 CONSTANT EOF
+1 CONSTANT INT
+2 CONSTANT ADD
+3 CONSTANT SUB
+4 CONSTANT MUL
+5 CONSTANT DIV
+
+VARIABLE chr
+: CHR@ chr c@ ;
+: CHR= CHR@ = ;
+: CHR! chr c! ;
+: VAL CHR@ '0' - ;
+
+VARIABLE factor
+: FACTOR@ factor @ ;
+: FACTOR! factor ! ;
+: FACTOR+ VAL FACTOR@ 10 * + FACTOR! ;
+
+VARIABLE term
+: TERM@ term @ ;
+: TERM! term ! ;
+: TERM* TERM@ FACTOR@ * TERM! ;
+: TERM/ TERM@ FACTOR@ / TERM! ;
+
+VARIABLE result
+: RESULT@ result @ ;
+: RESULT! result ! ;
+: RESULT? result ? ;
+: RESULT+ RESULT@ TERM@ + RESULT! ;
+: RESULT- RESULT@ TERM@ - RESULT! ;
+
+VARIABLE token
+: TOKEN@ token @ ;
+: TOKEN! token ! ;
+
+: ERROR ." Error parsing input" CR ABORT ;
+
+: ISDIGIT CHR@ '0' '9' 1+ WITHIN ;
+
+: ISWHITESPACE 9 CHR= 32 CHR= OR ;
+
+: ADVANCE KEY DUP CHR! EMIT ;
+
+: SKIPWHITESPACE
+    BEGIN
+        ISWHITESPACE WHILE
+        ADVANCE
+    REPEAT ;
+
+: GETFACTOR
+    0 FACTOR!
+    BEGIN
+        ISDIGIT WHILE
+        FACTOR+ ADVANCE
+    REPEAT
+    INT TOKEN! ;
+
+: GETTOKEN RECURSIVE
+    CHR@ CASE
+        9 OF SKIPWHITESPACE GETTOKEN ENDOF
+        13 OF EOF TOKEN! ENDOF
+        32 OF SKIPWHITESPACE GETTOKEN ENDOF
+        '+' OF ADD TOKEN! ADVANCE ENDOF
+        '-' OF SUB TOKEN! ADVANCE ENDOF
+        '*' OF MUL TOKEN! ADVANCE ENDOF
+        '/' OF DIV TOKEN! ADVANCE ENDOF
+        ISDIGIT
+            IF GETFACTOR
+            ELSE ERROR
+            ENDIF
+        ENDOF
+    ENDCASE ;
+
+: EAT
+    TOKEN@ =
+    IF GETTOKEN
+    ELSE ERROR
+    ENDIF ;
+
+: ISMULOP
+    MUL TOKEN@ =
+    DIV TOKEN@ = OR ;
+
+: DOMULOP
+    CASE
+        MUL OF TERM* ENDOF
+        DIV OF TERM/ ENDOF
+    ENDCASE ;
+
+: DOFACTOR INT EAT ;
+
+: DOTERM
+    DOFACTOR
+    FACTOR@ TERM!
+    BEGIN
+        ISMULOP WHILE
+        TOKEN@ >R
+        GETTOKEN DOFACTOR
+        R> DOMULOP
+    REPEAT ;
+
+: ISADDOP
+    ADD TOKEN@ =
+    SUB TOKEN@ = OR ;
+
+: DOADDOP
+    CASE
+        ADD OF RESULT+ ENDOF
+        SUB OF RESULT- ENDOF
+    ENDCASE ;
+
+: EXPR
+    ADVANCE
+    GETTOKEN
+    DOTERM
+    TERM@ RESULT!
+    BEGIN
+        ISADDOP WHILE
+        TOKEN@ >R
+        GETTOKEN DOTERM
+        R> DOADDOP
+    REPEAT ;
+
+: MAIN
+    CR EXPR
+    CR RESULT? ;
