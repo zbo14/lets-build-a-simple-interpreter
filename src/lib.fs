@@ -4,6 +4,8 @@
 3 CONSTANT SUB
 4 CONSTANT MUL
 5 CONSTANT DIV
+6 CONSTANT LPAREN
+7 CONSTANT RPAREN
 
 VARIABLE chr
 : CHR@ chr c@ ;
@@ -11,116 +13,109 @@ VARIABLE chr
 : CHR! chr c! ;
 : VAL CHR@ '0' - ;
 
-VARIABLE factor
-: FACTOR@ factor @ ;
-: FACTOR! factor ! ;
-: FACTOR+ VAL FACTOR@ 10 * + FACTOR! ;
+: ERROR ( -- )
+    ." Error parsing input" CR ABORT ;
 
-VARIABLE term
-: TERM@ term @ ;
-: TERM! term ! ;
-: TERM* TERM@ FACTOR@ * TERM! ;
-: TERM/ TERM@ FACTOR@ / TERM! ;
+: ISDIGIT ( char -- bool )
+    CHR@ '0' '9' 1+ WITHIN ;
 
-VARIABLE result
-: RESULT@ result @ ;
-: RESULT! result ! ;
-: RESULT? result ? ;
-: RESULT+ RESULT@ TERM@ + RESULT! ;
-: RESULT- RESULT@ TERM@ - RESULT! ;
+: ISWHITESPACE ( -- bool)
+    9 CHR= 32 CHR= OR ;
 
-VARIABLE token
-: TOKEN@ token @ ;
-: TOKEN! token ! ;
+: ADVANCE ( -- )
+    KEY DUP CHR! EMIT ;
 
-: ERROR ." Error parsing input" CR ABORT ;
-
-: ISDIGIT CHR@ '0' '9' 1+ WITHIN ;
-
-: ISWHITESPACE 9 CHR= 32 CHR= OR ;
-
-: ADVANCE KEY DUP CHR! EMIT ;
-
-: SKIPWHITESPACE
+: SKIPWHITESPACE ( -- )
     BEGIN
         ISWHITESPACE WHILE
         ADVANCE
     REPEAT ;
 
-: GETFACTOR
-    0 FACTOR!
+: GETINT ( -- x token )
+    0
     BEGIN
         ISDIGIT WHILE
-        FACTOR+ ADVANCE
+        10 * VAL +
+        ADVANCE
     REPEAT
-    INT TOKEN! ;
+    INT ;
 
-: GETTOKEN RECURSIVE
-    CHR@ CASE
-        9 OF SKIPWHITESPACE GETTOKEN ENDOF
-        13 OF EOF TOKEN! ENDOF
-        32 OF SKIPWHITESPACE GETTOKEN ENDOF
-        '+' OF ADD TOKEN! ADVANCE ENDOF
-        '-' OF SUB TOKEN! ADVANCE ENDOF
-        '*' OF MUL TOKEN! ADVANCE ENDOF
-        '/' OF DIV TOKEN! ADVANCE ENDOF
-        ISDIGIT
-            IF GETFACTOR
-            ELSE ERROR
-            ENDIF
-        ENDOF
-    ENDCASE ;
+\ TODO: cleanup
+: GETTOKEN ( -- [x] token )
+    RECURSIVE
+    9 CHR= IF SKIPWHITESPACE GETTOKEN ELSE
+    13 CHR= IF EOF ELSE
+    32 CHR= IF SKIPWHITESPACE GETTOKEN ELSE
+    '+' CHR= IF ADVANCE ADD ELSE
+    '-' CHR= IF ADVANCE SUB ELSE
+    '*' CHR= IF ADVANCE MUL ELSE
+    '/' CHR= IF ADVANCE DIV ELSE
+    '(' CHR= IF ADVANCE LPAREN ELSE
+    ')' CHR= IF ADVANCE RPAREN ELSE
+    ISDIGIT IF GETINT ELSE ERROR
+    ENDIF ENDIF ENDIF ENDIF ENDIF ENDIF ENDIF ENDIF ENDIF ENDIF ;
 
-: EAT
-    TOKEN@ =
-    IF GETTOKEN
-    ELSE ERROR
+: EAT ( token1 token2  -- [x] token )
+    = IF GETTOKEN ELSE ERROR ENDIF ;
+
+: ISMULOP ( token -- token bool )
+    DUP MUL = IF -1 ELSE DUP DIV = ENDIF ;
+
+: DOMULOP ( term factor token -- term )
+    MUL = IF * ELSE / ENDIF ;
+
+DEFER _DOEXPR
+
+: DOFACTOR ( token -- x token )
+    DUP INT =
+    IF INT EAT
+    ELSE
+        DUP LPAREN =
+        IF
+            LPAREN EAT
+            _DOEXPR
+            RPAREN EAT
+        ELSE ERROR
+        ENDIF
     ENDIF ;
 
-: ISMULOP
-    MUL TOKEN@ =
-    DIV TOKEN@ = OR ;
-
-: DOMULOP
-    CASE
-        MUL OF TERM* ENDOF
-        DIV OF TERM/ ENDOF
-    ENDCASE ;
-
-: DOFACTOR INT EAT ;
-
-: DOTERM
-    DOFACTOR
-    FACTOR@ TERM!
+: DOTERM                ( x token -- term token )
+    DOFACTOR            ( x token -- x token )
     BEGIN
-        ISMULOP WHILE
-        TOKEN@ >R
-        GETTOKEN DOFACTOR
-        R> DOMULOP
+        ISMULOP WHILE   ( x token -- x token )
+        >R              ( x token -- x )
+        GETTOKEN        ( x -- x token' )
+        DOFACTOR        ( x token' -- x factor token' )
+        ROT ROT         ( x factor token' -- token' x factor )
+        R> DOMULOP      ( token' x factor token -- token' x )
+        SWAP            ( token' x -- x token' )
     REPEAT ;
 
-: ISADDOP
-    ADD TOKEN@ =
-    SUB TOKEN@ = OR ;
+: ISADDOP ( token -- token bool )
+    DUP ADD = IF -1 ELSE DUP SUB = ENDIF ;
 
-: DOADDOP
-    CASE
-        ADD OF RESULT+ ENDOF
-        SUB OF RESULT- ENDOF
-    ENDCASE ;
+: DOADDOP ( expr term token -- expr token )
+    ADD = IF + ELSE - ENDIF ;
 
-: EXPR
-    ADVANCE
-    GETTOKEN
-    DOTERM
-    TERM@ RESULT!
+: DOEXPR                  ( x token -- expr token )
+    DOTERM                ( x token -- x token )
     BEGIN
-        ISADDOP WHILE
-        TOKEN@ >R
-        GETTOKEN DOTERM
-        R> DOADDOP
+        ISADDOP WHILE     ( x token -- x token )
+        >R                ( x token -- x )
+        GETTOKEN          ( x -- expr token' )
+        DOTERM            ( x token' -- x term token' )
+        ROT ROT           ( x term token' -- token' x term )
+        R> DOADDOP        ( token' x term token -- token' x )
+        SWAP              ( token' x -- x token' )
     REPEAT ;
 
-: MAIN
-    CR EXPR
-    CR RESULT? ;
+' DOEXPR IS _DOEXPR
+
+: MAIN ( -- expr )
+    CR
+    ADVANCE GETTOKEN
+    DOEXPR
+    EOF =
+    IF CR .
+    ELSE ERROR
+    ENDIF ;
