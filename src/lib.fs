@@ -31,7 +31,7 @@ VARIABLE chr
         ADVANCE
     REPEAT ;
 
-: GETINT ( -- x token )
+: GETINT
     0
     BEGIN
         ISDIGIT WHILE
@@ -41,11 +41,11 @@ VARIABLE chr
     INT ;
 
 \ TODO: cleanup
-: GETTOKEN ( -- [x] token )
+: TOKEN
     RECURSIVE
-    9 CHR= IF SKIPWHITESPACE GETTOKEN ELSE
+    9 CHR= IF SKIPWHITESPACE TOKEN ELSE
     13 CHR= IF EOF ELSE
-    32 CHR= IF SKIPWHITESPACE GETTOKEN ELSE
+    32 CHR= IF SKIPWHITESPACE TOKEN ELSE
     '+' CHR= IF ADVANCE ADD ELSE
     '-' CHR= IF ADVANCE SUB ELSE
     '*' CHR= IF ADVANCE MUL ELSE
@@ -55,67 +55,77 @@ VARIABLE chr
     ISDIGIT IF GETINT ELSE ERROR
     ENDIF ENDIF ENDIF ENDIF ENDIF ENDIF ENDIF ENDIF ENDIF ENDIF ;
 
-: EAT ( token1 token2  -- [x] token )
-    = IF GETTOKEN ELSE ERROR ENDIF ;
-
-: ISMULOP ( token -- token bool )
+: ISMULOP
     DUP MUL = IF -1 ELSE DUP DIV = ENDIF ;
 
-: DOMULOP ( term factor token -- term )
-    MUL = IF * ELSE / ENDIF ;
+DEFER _EXPR
 
-DEFER _DOEXPR
-
-: DOFACTOR ( token -- x token )
+\ factor : INTEGER | LPAREN expr RPAREN
+: FACTOR
     DUP INT =
-    IF INT EAT
+    IF TOKEN
     ELSE
         DUP LPAREN =
         IF
-            LPAREN EAT
-            _DOEXPR
-            RPAREN EAT
-        ELSE ERROR
+            DROP TOKEN
+            _EXPR
+            RPAREN =
+            IF TOKEN
+            ELSE ERROR
+            ENDIF
+        \ ELSE ...
         ENDIF
     ENDIF ;
 
-: DOTERM                ( x token -- term token )
-    DOFACTOR            ( x token -- x token )
-    BEGIN
-        ISMULOP WHILE   ( x token -- x token )
-        >R              ( x token -- x )
-        GETTOKEN        ( x -- x token' )
-        DOFACTOR        ( x token' -- x factor token' )
-        ROT ROT         ( x factor token' -- token' x factor )
-        R> DOMULOP      ( token' x factor token -- token' x )
-        SWAP            ( token' x -- x token' )
-    REPEAT ;
+: BINOP
+    RECURSIVE
+    DUP EOF = IF DROP THEN
+    DUP INT = IF DROP ELSE
+    DUP ADD = IF DROP BINOP >R BINOP R> + ELSE
+    DUP SUB = IF DROP BINOP >R BINOP R> - ELSE
+    DUP MUL = IF DROP BINOP >R BINOP R> * ELSE
+    DIV = IF BINOP >R BINOP R> / ELSE ERROR
+    ENDIF ENDIF ENDIF ENDIF ENDIF ;
 
-: ISADDOP ( token -- token bool )
+\ term : factor ((MUL | DIV) factor)*
+: TERM
+    FACTOR
+    BEGIN
+        ISMULOP WHILE
+        >R
+        TOKEN
+        FACTOR
+        R> SWAP >R
+        \ .s
+        BINOP INT
+        R>
+    REPEAT
+    FACTOR ;
+
+: ISADDOP
     DUP ADD = IF -1 ELSE DUP SUB = ENDIF ;
 
-: DOADDOP ( expr term token -- expr token )
-    ADD = IF + ELSE - ENDIF ;
-
-: DOEXPR                  ( x token -- expr token )
-    DOTERM                ( x token -- x token )
+\ expr : term ((PLUS | MINUS) term)*
+: EXPR
+    TERM
     BEGIN
-        ISADDOP WHILE     ( x token -- x token )
-        >R                ( x token -- x )
-        GETTOKEN          ( x -- expr token' )
-        DOTERM            ( x token' -- x term token' )
-        ROT ROT           ( x term token' -- token' x term )
-        R> DOADDOP        ( token' x term token -- token' x )
-        SWAP              ( token' x -- x token' )
-    REPEAT ;
+        ISADDOP WHILE
+        >R
+        TOKEN
+        TERM
+        R> SWAP >R
+        BINOP INT
+        R>
+    REPEAT
+    TERM ;
 
-' DOEXPR IS _DOEXPR
+' EXPR IS _EXPR
 
-: MAIN ( -- expr )
+: MAIN
     CR
-    ADVANCE GETTOKEN
-    DOEXPR
+    ADVANCE TOKEN
+    EXPR
     EOF =
-    IF CR .
+    IF CR DROP .
     ELSE ERROR
     ENDIF ;
